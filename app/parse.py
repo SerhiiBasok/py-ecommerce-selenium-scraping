@@ -1,9 +1,45 @@
+import csv
+import time
 from dataclasses import dataclass
 from urllib.parse import urljoin
-
+from selenium import webdriver
+from selenium.common import (
+    NoSuchElementException,
+    ElementNotInteractableException
+)
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.common.by import By
 
 BASE_URL = "https://webscraper.io/"
 HOME_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/")
+
+URLS = {
+    "home": HOME_URL,
+    "computers": urljoin(BASE_URL, "test-sites/e-commerce/more/computers"),
+    "laptops": urljoin(BASE_URL, "test-sites/e-commerce/more/computers/laptops"),
+    "tablets": urljoin(BASE_URL, "test-sites/e-commerce/more/computers/tablets"),
+    "phones": urljoin(BASE_URL, "test-sites/e-commerce/more/phones"),
+    "touch": urljoin(BASE_URL, "test-sites/e-commerce/more/phones/touch"),
+}
+
+
+def accept_cookies(driver: webdriver) -> None:
+    try:
+        cookie_btn = driver.find_element(By.CLASS_NAME, "acceptCookies")
+        cookie_btn.click()
+    except NoSuchElementException:
+        pass
+
+
+def init_driver() -> WebDriver:
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(options=options)
+    driver.implicitly_wait(3)
+    return driver
 
 
 @dataclass
@@ -15,8 +51,87 @@ class Product:
     num_of_reviews: int
 
 
+def parse_product(product) -> Product:
+
+    title_part = product.find_element(By.CLASS_NAME, "title")
+    title = title_part.get_attribute("title")
+
+    description_part = product.find_element(By.CLASS_NAME, "description")
+    description = description_part.text.strip()
+
+    price_part = product.find_element(By.CLASS_NAME, "price")
+    price = float(price_part.text.replace("$", "").strip())
+
+    reviews_part = product.find_element(By.CLASS_NAME, "ratings")
+    rating_icons = reviews_part.find_elements(By.CLASS_NAME, "ws-icon-star")
+    rating = len(rating_icons)
+
+    reviews_count = reviews_part.find_element(
+        By.CLASS_NAME, "review-count"
+    ).text.strip()
+    num_of_reviews = int(reviews_count.split()[0])
+
+    return Product(
+        title=title,
+        description=description,
+        price=price,
+        rating=rating,
+        num_of_reviews=num_of_reviews,
+    )
+
+
+def more_button(url: str, driver: WebDriver) -> None:
+    driver.get(url)
+    accept_cookies(driver)
+
+    try:
+        while True:
+            more = driver.find_element(By.CLASS_NAME, "ecomerce-items-scroll-more")
+            if more.is_displayed():
+                more.click()
+                time.sleep(1)
+            else:
+                break
+    except (NoSuchElementException, ElementNotInteractableException):
+        pass
+
+
+def parse_pages(url: str, driver: WebDriver) -> list[Product]:
+    more_button(url, driver)
+    products = driver.find_elements(By.CLASS_NAME, "thumbnail")
+    return [parse_product(p) for p in products]
+
+
+def write_products_to_csv(category: str, products: list[Product]) -> None:
+    with open(f"{category}.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "title",
+                "description",
+                "price",
+                "rating",
+                "num_of_reviews",
+            ]
+        )
+        for product in products:
+            writer.writerow(
+                [
+                    product.title,
+                    product.description,
+                    product.price,
+                    product.rating,
+                    product.num_of_reviews,
+                ]
+            )
+
+
 def get_all_products() -> None:
-    pass
+    driver = init_driver()
+    for category, url in URLS.items():
+        products = parse_pages(url, driver)
+        write_products_to_csv(category, products)
+    driver.quit()
 
 
 if __name__ == "__main__":
