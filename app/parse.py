@@ -91,17 +91,24 @@ def parse_product(product) -> Product:
 def more_button(url: str, driver: WebDriver) -> None:
     driver.get(url)
     accept_cookies(driver)
+    wait = WebDriverWait(driver, 10)
 
-    try:
-        while True:
-            more = driver.find_element(By.CLASS_NAME, "ecomerce-items-scroll-more")
-            if more.is_displayed():
-                more.click()
-                time.sleep(1)
-            else:
-                break
-    except (NoSuchElementException, ElementNotInteractableException):
-        pass
+    prev_count = 0
+    while True:
+        products = driver.find_elements(By.CLASS_NAME, "thumbnail")
+        current_count = len(products)
+
+        try:
+            more_btn = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "ecomerce-items-scroll-more")))
+            more_btn.click()
+
+            wait.until(lambda d: len(d.find_elements(By.CLASS_NAME, "thumbnail")) > current_count)
+        except (TimeoutException, NoSuchElementException, ElementNotInteractableException):
+            break
+
+        new_count = len(driver.find_elements(By.CLASS_NAME, "thumbnail"))
+        if new_count == current_count:
+            break
 
 
 def parse_pages(url: str, driver: WebDriver) -> list[Product]:
@@ -110,28 +117,20 @@ def parse_pages(url: str, driver: WebDriver) -> list[Product]:
     return [parse_product(p) for p in products]
 
 
-def write_products_to_csv(category: str, products: list[Product]) -> None:
+def write_products_to_csv(category: str, products: list[Product | None]) -> None:
+    valid_products = [p for p in products if p is not None]
+
     with open(f"{category}.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            [
-                "title",
-                "description",
-                "price",
-                "rating",
-                "num_of_reviews",
-            ]
-        )
-        for product in products:
-            writer.writerow(
-                [
-                    product.title,
-                    product.description,
-                    product.price,
-                    product.rating,
-                    product.num_of_reviews,
-                ]
-            )
+        writer.writerow(["title", "description", "price", "rating", "num_of_reviews"])
+        for product in valid_products:
+            writer.writerow([
+                product.title,
+                product.description,
+                product.price,
+                product.rating,
+                product.num_of_reviews,
+            ])
 
 
 def get_all_products() -> None:
